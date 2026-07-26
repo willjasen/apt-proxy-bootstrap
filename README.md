@@ -25,6 +25,12 @@ The installer is safe to run again. It installs:
 If either destination already contains an unmanaged file, it is preserved with
 the suffix `.pre-apt-proxy`.
 
+The installer also corrects the incomplete
+`http://security.debian.org bookworm-security` entry found in some container
+templates. It changes that entry to
+`http://deb.debian.org/debian-security bookworm-security` and saves the
+original source file with the suffix `.pre-apt-proxy-security`.
+
 ## Check or test
 
 ```sh
@@ -33,6 +39,7 @@ sudo apt-proxy test
 ```
 
 The decision shown by `status` will be either the Apt1 URL or `DIRECT`.
+Set `NO_COLOR=1` to disable colored output.
 
 For an end-to-end failover test, stop `apt-cacher-ng` briefly on Apt1, run the
 client test, and then restart the service:

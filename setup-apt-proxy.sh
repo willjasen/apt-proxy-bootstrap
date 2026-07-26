@@ -9,12 +9,36 @@ APT_CONFIG="/etc/apt/apt.conf.d/99-apt-proxy"
 COMMAND_LINK="/usr/local/sbin/apt-proxy"
 MARKER="Managed by setup-apt-proxy.sh"
 
-say() {
-    printf '%s\n' "$*"
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-dumb}" != "dumb" ]; then
+    RESET='\033[0m'
+    BOLD='\033[1m'
+    RED='\033[31m'
+    GREEN='\033[32m'
+    YELLOW='\033[33m'
+    CYAN='\033[36m'
+else
+    RESET=''
+    BOLD=''
+    RED=''
+    GREEN=''
+    YELLOW=''
+    CYAN=''
+fi
+
+info() {
+    printf '%b[INFO]%b %s\n' "$CYAN" "$RESET" "$*"
+}
+
+success() {
+    printf '%b[ OK ]%b %s\n' "$GREEN" "$RESET" "$*"
+}
+
+warn() {
+    printf '%b[WARN]%b %s\n' "$YELLOW" "$RESET" "$*" >&2
 }
 
 die() {
-    printf 'Error: %s\n' "$*" >&2
+    printf '%b[FAIL]%b %s\n' "$RED" "$RESET" "$*" >&2
     exit 1
 }
 
@@ -46,8 +70,36 @@ backup_unmanaged_file() {
         [ ! -e "$backup" ] ||
             die "$backup already exists; move it aside before installing"
         cp -p "$target" "$backup"
-        say "Backed up $target to $backup"
+        info "Backed up $target to $backup"
     fi
+}
+
+fix_debian_security_sources() {
+    for source_file in \
+        /etc/apt/sources.list \
+        /etc/apt/sources.list.d/*.list \
+        /etc/apt/sources.list.d/*.sources
+    do
+        [ -f "$source_file" ] || continue
+
+        if grep -Eq 'https?://security\.debian\.org/?([[:space:]]|$)' \
+            "$source_file"; then
+            backup="${source_file}.pre-apt-proxy-security"
+            if [ ! -e "$backup" ]; then
+                cp -p "$source_file" "$backup"
+                info "Backed up $source_file to $backup"
+            fi
+
+            sed -i \
+                -e 's|http://security\.debian\.org/\{0,1\}\([[:space:]]\)|http://deb.debian.org/debian-security\1|g' \
+                -e 's|https://security\.debian\.org/\{0,1\}\([[:space:]]\)|http://deb.debian.org/debian-security\1|g' \
+                -e 's|http://security\.debian\.org/\{0,1\}$|http://deb.debian.org/debian-security|' \
+                -e 's|https://security\.debian\.org/\{0,1\}$|http://deb.debian.org/debian-security|' \
+                "$source_file"
+
+            warn "Corrected an incomplete Debian Security URL in $source_file"
+        fi
+    done
 }
 
 ensure_curl() {
@@ -58,7 +110,7 @@ ensure_curl() {
     command -v apt-get >/dev/null 2>&1 ||
         die "curl is missing and this system does not provide apt-get"
 
-    say "Installing curl using a direct repository connection..."
+    info "Installing curl using a direct repository connection..."
     apt-get \
         -o Acquire::http::Proxy=DIRECT \
         -o Acquire::https::Proxy=DIRECT \
@@ -121,7 +173,7 @@ install_command_link() {
     fi
 
     ln -s "$script_path" "$COMMAND_LINK"
-    say "Installed command: $COMMAND_LINK"
+    success "Installed command: $COMMAND_LINK"
 }
 
 show_status() {
@@ -130,16 +182,22 @@ show_status() {
         decision="$("$DETECTOR")"
     fi
 
-    say "Proxy:    $PROXY_URL"
-    say "Decision: $decision"
+    printf '%bProxy:%b    %s\n' "$BOLD" "$RESET" "$PROXY_URL"
+    if [ "$decision" = "DIRECT" ]; then
+        printf '%bDecision:%b %b%s%b\n' \
+            "$BOLD" "$RESET" "$YELLOW" "$decision" "$RESET"
+    else
+        printf '%bDecision:%b %b%s%b\n' \
+            "$BOLD" "$RESET" "$GREEN" "$decision" "$RESET"
+    fi
 
     if [ -f "$APT_CONFIG" ]; then
-        say "APT config:"
+        printf '%bAPT config:%b\n' "$BOLD" "$RESET"
         apt-config dump |
             grep -E 'Acquire::(http::Proxy-Auto-Detect|https::Proxy)' ||
             true
     else
-        say "APT config: not installed"
+        warn "APT config is not installed"
     fi
 }
 
@@ -148,21 +206,36 @@ test_setup() {
     [ -f "$APT_CONFIG" ] || die "$APT_CONFIG is not installed"
 
     decision="$("$DETECTOR")"
-    say "Current proxy decision: $decision"
+    info "Current proxy decision: $decision"
 
     if [ "$decision" = "DIRECT" ]; then
-        say "The configured proxy is unavailable; testing direct repository access."
+        warn "The configured proxy is unavailable; testing direct repository access."
     else
-        say "The configured proxy is available; testing cached HTTP and direct HTTPS access."
+        info "The configured proxy is available; testing cached HTTP and direct HTTPS access."
     fi
 
-    apt-get update
-    say "APT update completed successfully."
+    apt_log="$(mktemp)"
+    trap 'rm -f "$apt_log"' EXIT HUP INT TERM
+    apt_status=0
+    apt-get update >"$apt_log" 2>&1 || apt_status=$?
+    cat "$apt_log"
+
+    if [ "$apt_status" -ne 0 ] ||
+        grep -Eq '^(Err:|E:|W: Failed to fetch)' "$apt_log"; then
+        rm -f "$apt_log"
+        trap - EXIT HUP INT TERM
+        die "APT update reported one or more repository failures"
+    fi
+
+    rm -f "$apt_log"
+    trap - EXIT HUP INT TERM
+    success "APT update completed without repository failures."
 }
 
 install_setup() {
     require_root "$@"
     validate_settings
+    fix_debian_security_sources
     ensure_curl
     backup_unmanaged_file "$DETECTOR"
     backup_unmanaged_file "$APT_CONFIG"
@@ -170,7 +243,7 @@ install_setup() {
     write_apt_config
     install_command_link
 
-    say "Installed APT proxy configuration."
+    success "Installed APT proxy configuration."
     show_status
     test_setup
 }
@@ -187,7 +260,7 @@ restore_or_remove() {
 
     if [ -e "$backup" ]; then
         mv "$backup" "$target"
-        say "Restored $target"
+        success "Restored $target"
     fi
 }
 
@@ -197,11 +270,11 @@ uninstall_setup() {
     if [ -L "$COMMAND_LINK" ] &&
         [ "$(readlink -f "$COMMAND_LINK")" = "$script_path" ]; then
         rm -f "$COMMAND_LINK"
-        say "Removed $COMMAND_LINK"
+        success "Removed $COMMAND_LINK"
     fi
     restore_or_remove "$APT_CONFIG"
     restore_or_remove "$DETECTOR"
-    say "Removed the APT proxy configuration."
+    success "Removed the APT proxy configuration."
 }
 
 usage() {

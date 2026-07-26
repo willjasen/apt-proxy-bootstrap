@@ -46,6 +46,50 @@ require_root() {
     [ "$(id -u)" -eq 0 ] || die "run this script as root (for example: sudo $0 $*)"
 }
 
+self_update() {
+    [ "${APT_PROXY_NO_UPDATE:-0}" != "1" ] || return
+    [ "${APT_PROXY_SELF_UPDATED:-0}" != "1" ] || return
+
+    script_path="$(readlink -f "$0")"
+    script_dir="$(dirname "$script_path")"
+
+    command -v git >/dev/null 2>&1 || {
+        warn "Git is unavailable; skipping the automatic update check"
+        return
+    }
+    [ -d "$script_dir/.git" ] || {
+        warn "The installer is not in a Git checkout; skipping the automatic update check"
+        return
+    }
+
+    if ! git -C "$script_dir" diff --quiet ||
+        ! git -C "$script_dir" diff --cached --quiet; then
+        warn "The repository has local changes; skipping the automatic update check"
+        return
+    fi
+
+    old_revision="$(git -C "$script_dir" rev-parse HEAD 2>/dev/null)" || {
+        warn "Could not read the current Git revision; skipping the automatic update check"
+        return
+    }
+
+    info "Checking for script updates..."
+    if ! git -C "$script_dir" pull --ff-only; then
+        warn "Could not update the repository; continuing with the installed version"
+        return
+    fi
+
+    new_revision="$(git -C "$script_dir" rev-parse HEAD 2>/dev/null)" || return
+    if [ "$new_revision" != "$old_revision" ]; then
+        success "Updated the scripts; restarting the requested command"
+        APT_PROXY_SELF_UPDATED=1
+        export APT_PROXY_SELF_UPDATED
+        exec "$script_path" "$@"
+    fi
+
+    success "Scripts are already current"
+}
+
 validate_settings() {
     case "$PROXY_URL" in
         http://*|https://*) ;;
@@ -291,14 +335,15 @@ Optional environment variables:
   APT_PROXY_URL         Proxy URL (default: $PROXY_URL)
   APT_PROXY_HEALTH_URL  Health-check URL (default: $HEALTH_URL)
   APT_PROXY_TIMEOUT     Health-check timeout in seconds (default: $TIMEOUT)
+  APT_PROXY_NO_UPDATE   Set to 1 to skip the automatic Git update check
 EOF
 }
 
 command_name="${1:-install}"
 case "$command_name" in
-    install) install_setup "$@" ;;
-    test) test_setup ;;
-    status) show_status ;;
+    install) self_update "$@"; install_setup "$@" ;;
+    test) self_update "$@"; test_setup ;;
+    status) self_update "$@"; show_status ;;
     uninstall) uninstall_setup "$@" ;;
     -h|--help|help) usage ;;
     *) usage >&2; exit 2 ;;

@@ -31,6 +31,25 @@ templates. It changes that entry to
 `http://deb.debian.org/debian-security bookworm-security` and saves the
 original source file with the suffix `.pre-apt-proxy-security`.
 
+## Automatic updates
+
+Before every `install`, `status`, or `test`, the command runs:
+
+```sh
+git pull --ff-only
+```
+
+If an update is installed, the requested command restarts using the new
+version. If GitHub is unavailable, the local repository has tracked changes, or
+the script is not running from a Git checkout, it warns and continues with the
+installed version. Uninstall never depends on network access.
+
+To skip the update check for one command:
+
+```sh
+sudo APT_PROXY_NO_UPDATE=1 apt-proxy test
+```
+
 ## Check or test
 
 ```sh

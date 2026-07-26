@@ -20,6 +20,7 @@ The installer is safe to run again. It installs:
 
 - `/usr/local/sbin/apt-proxy-detect`
 - `/etc/apt/apt.conf.d/99-apt-proxy`
+- `/usr/local/sbin/apt-proxy` as a symlink to the cloned installer
 
 If either destination already contains an unmanaged file, it is preserved with
 the suffix `.pre-apt-proxy`.
@@ -27,8 +28,8 @@ the suffix `.pre-apt-proxy`.
 ## Check or test
 
 ```sh
-sudo ./setup-apt-proxy.sh status
-sudo ./setup-apt-proxy.sh test
+sudo apt-proxy status
+sudo apt-proxy test
 ```
 
 The decision shown by `status` will be either the Apt1 URL or `DIRECT`.
@@ -41,7 +42,7 @@ client test, and then restart the service:
 systemctl stop apt-cacher-ng
 
 # On the client
-sudo ./setup-apt-proxy.sh test
+sudo apt-proxy test
 
 # On apt1
 systemctl start apt-cacher-ng
@@ -50,7 +51,7 @@ systemctl start apt-cacher-ng
 ## Uninstall
 
 ```sh
-sudo ./setup-apt-proxy.sh uninstall
+sudo apt-proxy uninstall
 ```
 
 Any files saved with `.pre-apt-proxy` are restored.

@@ -6,6 +6,7 @@ HEALTH_URL="${APT_PROXY_HEALTH_URL:-${PROXY_URL%/}/acng-report.html}"
 TIMEOUT="${APT_PROXY_TIMEOUT:-3}"
 DETECTOR="/usr/local/sbin/apt-proxy-detect"
 APT_CONFIG="/etc/apt/apt.conf.d/99-apt-proxy"
+COMMAND_LINK="/usr/local/sbin/apt-proxy"
 MARKER="Managed by setup-apt-proxy.sh"
 
 say() {
@@ -106,6 +107,23 @@ write_apt_config() {
     trap - EXIT HUP INT TERM
 }
 
+install_command_link() {
+    script_path="$(readlink -f "$0")"
+    [ -n "$script_path" ] && [ -f "$script_path" ] ||
+        die "could not determine the installer's absolute path"
+
+    if [ -e "$COMMAND_LINK" ] || [ -L "$COMMAND_LINK" ]; then
+        if [ -L "$COMMAND_LINK" ] &&
+            [ "$(readlink -f "$COMMAND_LINK")" = "$script_path" ]; then
+            return
+        fi
+        die "$COMMAND_LINK already exists and is not managed by this installer"
+    fi
+
+    ln -s "$script_path" "$COMMAND_LINK"
+    say "Installed command: $COMMAND_LINK"
+}
+
 show_status() {
     decision="not installed"
     if [ -x "$DETECTOR" ]; then
@@ -150,6 +168,7 @@ install_setup() {
     backup_unmanaged_file "$APT_CONFIG"
     write_detector
     write_apt_config
+    install_command_link
 
     say "Installed APT proxy configuration."
     show_status
@@ -174,6 +193,12 @@ restore_or_remove() {
 
 uninstall_setup() {
     require_root "$@"
+    script_path="$(readlink -f "$0")"
+    if [ -L "$COMMAND_LINK" ] &&
+        [ "$(readlink -f "$COMMAND_LINK")" = "$script_path" ]; then
+        rm -f "$COMMAND_LINK"
+        say "Removed $COMMAND_LINK"
+    fi
     restore_or_remove "$APT_CONFIG"
     restore_or_remove "$DETECTOR"
     say "Removed the APT proxy configuration."

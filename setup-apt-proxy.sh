@@ -47,39 +47,46 @@ require_root() {
 }
 
 self_update() {
-    [ "${APT_PROXY_NO_UPDATE:-0}" != "1" ] || return
-    [ "${APT_PROXY_SELF_UPDATED:-0}" != "1" ] || return
+    [ "${APT_PROXY_NO_UPDATE:-0}" != "1" ] || return 0
+    [ "${APT_PROXY_SELF_UPDATED:-0}" != "1" ] || return 0
 
     script_path="$(readlink -f "$0")"
     script_dir="$(dirname "$script_path")"
 
     command -v git >/dev/null 2>&1 || {
         warn "Git is unavailable; skipping the automatic update check"
-        return
+        return 0
     }
     [ -d "$script_dir/.git" ] || {
         warn "The installer is not in a Git checkout; skipping the automatic update check"
-        return
+        return 0
     }
 
     if ! git -C "$script_dir" diff --quiet ||
         ! git -C "$script_dir" diff --cached --quiet; then
         warn "The repository has local changes; skipping the automatic update check"
-        return
+        return 0
     fi
 
     old_revision="$(git -C "$script_dir" rev-parse HEAD 2>/dev/null)" || {
         warn "Could not read the current Git revision; skipping the automatic update check"
-        return
+        return 0
     }
 
     info "Checking for script updates..."
-    if ! git -C "$script_dir" pull --ff-only; then
+    git_log="$(mktemp)"
+    trap 'rm -f "$git_log"' EXIT HUP INT TERM
+    if ! git -C "$script_dir" pull --ff-only --quiet >"$git_log" 2>&1; then
+        cat "$git_log" >&2
+        rm -f "$git_log"
+        trap - EXIT HUP INT TERM
         warn "Could not update the repository; continuing with the installed version"
-        return
+        return 0
     fi
+    rm -f "$git_log"
+    trap - EXIT HUP INT TERM
 
-    new_revision="$(git -C "$script_dir" rev-parse HEAD 2>/dev/null)" || return
+    new_revision="$(git -C "$script_dir" rev-parse HEAD 2>/dev/null)" || return 0
     if [ "$new_revision" != "$old_revision" ]; then
         success "Updated the scripts; restarting the requested command"
         APT_PROXY_SELF_UPDATED=1

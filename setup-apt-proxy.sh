@@ -196,6 +196,10 @@ write_apt_config() {
         printf '// %s\n' "$MARKER"
         printf 'Acquire::http::Proxy-Auto-Detect "%s";\n' "$DETECTOR"
         printf 'Acquire::https::Proxy "DIRECT";\n'
+        printf 'APT::Update::Pre-Invoke { "if [ -x %s ]; then %s update --hook; fi || true"; };\n' \
+            "$COMMAND_LINK" "$COMMAND_LINK"
+        printf 'APT::Install::Pre-Invoke { "if [ -x %s ]; then %s update --hook; fi || true"; };\n' \
+            "$COMMAND_LINK" "$COMMAND_LINK"
     } >"$temp_file"
 
     install -o root -g root -m 0644 "$temp_file" "$APT_CONFIG"
@@ -238,7 +242,8 @@ show_status() {
     if [ -f "$APT_CONFIG" ]; then
         printf '%bAPT config:%b\n' "$BOLD" "$RESET"
         apt-config dump |
-            grep -E 'Acquire::(http::Proxy-Auto-Detect|https::Proxy)' ||
+            grep -E \
+                'Acquire::(http::Proxy-Auto-Detect|https::Proxy)|APT::(Update|Install)::Pre-Invoke' ||
             true
     else
         warn "APT config is not installed"
@@ -323,12 +328,13 @@ uninstall_setup() {
 
 usage() {
     cat <<EOF
-Usage: $0 [install|test|status|uninstall]
+Usage: $0 [install|test|status|update|uninstall]
 
 Commands:
   install     Install or refresh the configuration and run apt-get update
   test        Display the current decision and run apt-get update
   status      Display the current decision and effective APT settings
+  update      Pull script updates without running APT
   uninstall   Remove this configuration and restore saved files
 
 Optional environment variables:
@@ -344,6 +350,7 @@ case "$command_name" in
     install) self_update "$@"; install_setup "$@" ;;
     test) self_update "$@"; test_setup ;;
     status) self_update "$@"; show_status ;;
+    update) self_update "$@"; success "Automatic update check completed" ;;
     uninstall) uninstall_setup "$@" ;;
     -h|--help|help) usage ;;
     *) usage >&2; exit 2 ;;

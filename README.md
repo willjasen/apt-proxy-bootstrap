@@ -44,6 +44,17 @@ version. If GitHub is unavailable, the local repository has tracked changes, or
 the script is not running from a Git checkout, it warns and continues with the
 installed version. Uninstall never depends on network access.
 
+The installed APT configuration also invokes the same fail-open update check
+automatically before:
+
+- `apt update` and `apt-get update`;
+- APT install and upgrade operations.
+
+This keeps the Git checkout current even on machines where nobody manually
+runs `apt-proxy`. The hook only runs Git; it never starts another APT process,
+so it does not recurse or compete for APT's package-manager lock. A failed Git
+update is reduced to a warning and never blocks package retrieval.
+
 To skip the update check for one command:
 
 ```sh

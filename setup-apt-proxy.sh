@@ -266,11 +266,11 @@ test_setup() {
     apt_log="$(mktemp)"
     trap 'rm -f "$apt_log"' EXIT HUP INT TERM
     apt_status=0
-    apt-get update >"$apt_log" 2>&1 || apt_status=$?
-    cat "$apt_log"
+    apt-get -qq update >"$apt_log" 2>&1 || apt_status=$?
 
     if [ "$apt_status" -ne 0 ] ||
         grep -Eq '^(Err:|E:|W: Failed to fetch)' "$apt_log"; then
+        cat "$apt_log" >&2
         rm -f "$apt_log"
         trap - EXIT HUP INT TERM
         die "APT update reported one or more repository failures"
